@@ -246,9 +246,9 @@ a:hover { text-decoration: underline; }
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(17, 19, 24, 0.55);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  background: rgba(17, 19, 24, 0.45);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   padding: var(--space-4);
   z-index: 70;
   opacity: 0;
@@ -264,7 +264,7 @@ a:hover { text-decoration: underline; }
   max-width: 360px;
   background: var(--bg-surface);
   border-radius: var(--radius-lg);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.18);
   padding: var(--space-8) var(--space-6) var(--space-6);
   text-align: center;
   transform: translateY(12px) scale(0.98);
@@ -329,7 +329,11 @@ a:hover { text-decoration: underline; }
 .pinmodal__digit:not(:placeholder-shown),
 .pinmodal__digit[value]:not([value=""]) {
   border-color: var(--border-strong);
-  background: #FAFBFC;
+  background: var(--bg-root);
+}
+.pinmodal.is-shake .pinmodal__digit {
+  border-color: var(--error);
+  background: var(--error-subtle);
 }
 .pinmodal__error {
   font-size: var(--text-sm);
@@ -340,15 +344,18 @@ a:hover { text-decoration: underline; }
 .pinmodal__cancel {
   display: inline-block;
   font-size: var(--text-sm);
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-weight: 500;
-  padding: 6px 14px;
+  padding: 8px 20px;
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  transition: color 150ms var(--ease-out), background 150ms var(--ease-out);
+  background: var(--bg-surface);
+  transition: color 150ms var(--ease-out), background 150ms var(--ease-out), border-color 150ms var(--ease-out);
 }
 .pinmodal__cancel:hover {
   color: var(--text-primary);
   background: var(--bg-surface-hover);
+  border-color: var(--border-strong);
 }
 .pinmodal.is-shake .pinmodal__pin { animation: shake 320ms var(--ease-out); }
 @keyframes shake {
@@ -1408,7 +1415,7 @@ a:hover { text-decoration: underline; }
       <svg class="icon" style="width:26px;height:26px"><use href="#i-lock"/></svg>
     </div>
     <h2 class="pinmodal__title" id="pin-title">Verify PIN</h2>
-    <p class="pinmodal__subtitle">A 4-digit PIN is required to process your upload.</p>
+    <p class="pinmodal__subtitle">Enter your 4-digit PIN to continue.</p>
     <div class="pinmodal__pin">
       <input class="pinmodal__digit" type="password" inputmode="numeric" maxlength="1" autocomplete="off" aria-label="PIN digit 1" />
       <input class="pinmodal__digit" type="password" inputmode="numeric" maxlength="1" autocomplete="off" aria-label="PIN digit 2" />
