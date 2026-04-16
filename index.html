@@ -237,13 +237,24 @@ a:hover { text-decoration: underline; }
    PIN Lock Screen
    ========================================================================== */
 .lock {
-  min-height: 100vh;
+  position: fixed;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-root);
+  background: var(--bg-overlay);
   padding: var(--space-4);
+  z-index: 70;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 200ms var(--ease-out);
 }
+.lock.is-showing {
+  opacity: 1;
+  pointer-events: auto;
+}
+.lock .lock__card { transform: translateY(8px); transition: transform 220ms var(--ease-out); }
+.lock.is-showing .lock__card { transform: translateY(0); }
 .lock__card {
   width: 100%;
   max-width: 380px;
@@ -1361,14 +1372,14 @@ a:hover { text-decoration: underline; }
 </svg>
 
 <!-- ========================================================================
-     Screen: Lock (PIN)
+     PIN Overlay (shown only when an upload is attempted without unlock)
      ======================================================================== -->
-<section id="screen-lock" class="screen lock is-active" aria-labelledby="lock-title">
+<div id="pin-overlay" class="lock" role="dialog" aria-modal="true" aria-labelledby="lock-title" aria-hidden="true">
   <div class="lock__card">
     <div class="lock__brand">INCYT</div>
     <div class="lock__divider"></div>
-    <h1 class="lock__title" id="lock-title">Expense Report</h1>
-    <p class="lock__subtitle">Enter PIN to unlock</p>
+    <h1 class="lock__title" id="lock-title">Unlock to upload</h1>
+    <p class="lock__subtitle">Enter the 4-digit PIN</p>
     <div class="lock__pin">
       <input class="lock__digit" type="password" inputmode="numeric" maxlength="1" autocomplete="off" data-pin="0" aria-label="PIN digit 1" />
       <input class="lock__digit" type="password" inputmode="numeric" maxlength="1" autocomplete="off" data-pin="1" aria-label="PIN digit 2" />
@@ -1376,14 +1387,17 @@ a:hover { text-decoration: underline; }
       <input class="lock__digit" type="password" inputmode="numeric" maxlength="1" autocomplete="off" data-pin="3" aria-label="PIN digit 4" />
     </div>
     <div id="lock-error" class="lock__error" role="alert" aria-live="polite"></div>
+    <div style="margin-top: var(--space-4); display:flex; justify-content:center; gap:var(--space-2)">
+      <button class="btn btn--ghost" id="pin-cancel" style="font-size:var(--text-xs)">Cancel</button>
+    </div>
     <div class="lock__footer">Confidential — uploaded data stays in your browser</div>
   </div>
-</section>
+</div>
 
 <!-- ========================================================================
      Screen: Upload
      ======================================================================== -->
-<section id="screen-upload" class="screen" aria-labelledby="upload-title">
+<section id="screen-upload" class="screen is-active" aria-labelledby="upload-title">
   <header class="header">
     <div class="header__left">
       <span class="header__brand">INCYT</span>
@@ -1391,9 +1405,7 @@ a:hover { text-decoration: underline; }
       <span class="header__title">Expense Report</span>
     </div>
     <div class="header__right">
-      <button class="btn btn--icon" id="lock-btn" title="Lock" aria-label="Lock session">
-        <svg class="icon"><use href="#i-lock"/></svg>
-      </button>
+      <span class="header__file" id="pin-status" style="display:none">Unlocked for upload</span>
     </div>
   </header>
 
@@ -1407,7 +1419,7 @@ a:hover { text-decoration: underline; }
         </div>
         <div class="upload__zone-title">Drop Airwallex CSV here</div>
         <div class="upload__zone-action">or click to browse</div>
-        <div class="upload__help">Export from Airwallex → Expenses → Export CSV. Data never leaves your device.</div>
+        <div class="upload__help">Export from Airwallex → Expenses → Export CSV. A 4-digit PIN is required before the file is processed. Data never leaves your device.</div>
         <input type="file" id="file-input" accept=".csv,text/csv" style="display:none" />
       </label>
       <div id="upload-loading" class="upload__loading" style="display:none">
@@ -2816,18 +2828,24 @@ const ExportUtils = {
 };
 
 /* ============================================================
-   PIN Gate
+   PIN Gate — triggered on upload, not on page load.
    ============================================================ */
 const PinGate = {
+  _resolve: null,
+  _reject: null,
+  _wired: false,
+  isUnlocked() {
+    return sessionStorage.getItem('pinUnlocked') === '1';
+  },
+  updateStatusPill() {
+    const el = $('#pin-status');
+    if (el) el.style.display = this.isUnlocked() ? 'inline-block' : 'none';
+  },
   init() {
-    // If already unlocked in this session, skip
-    if (sessionStorage.getItem('pinUnlocked') === '1') {
-      App.showScreen('upload');
-      return;
-    }
-    App.showScreen('lock');
+    // Set up input handlers once (idempotent)
+    if (this._wired) return;
+    this._wired = true;
     const inputs = $$('.lock__digit');
-    inputs[0]?.focus();
     inputs.forEach((inp, idx) => {
       inp.addEventListener('input', (e) => {
         const v = e.target.value.replace(/\D/g, '').slice(-1);
@@ -2842,6 +2860,7 @@ const PinGate = {
           e.preventDefault();
         }
         if (e.key === 'Enter') this.submit();
+        if (e.key === 'Escape') this.cancel();
       });
       inp.addEventListener('paste', (e) => {
         const text = (e.clipboardData || window.clipboardData).getData('text').replace(/\D/g, '');
@@ -2853,29 +2872,71 @@ const PinGate = {
         }
       });
     });
+    $('#pin-cancel')?.addEventListener('click', () => this.cancel());
+    // Click outside the card cancels
+    $('#pin-overlay')?.addEventListener('click', (e) => {
+      if (e.target.id === 'pin-overlay') this.cancel();
+    });
+    this.updateStatusPill();
+  },
+  /** Returns a promise that resolves when the user is unlocked, rejects if they cancel. */
+  requireUnlock() {
+    if (this.isUnlocked()) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      this._resolve = resolve;
+      this._reject = reject;
+      this._show();
+    });
+  },
+  _show() {
+    const overlay = $('#pin-overlay');
+    overlay.classList.add('is-showing');
+    overlay.setAttribute('aria-hidden', 'false');
+    $('#lock-error').textContent = '';
+    const inputs = $$('.lock__digit');
+    inputs.forEach(i => i.value = '');
+    setTimeout(() => inputs[0]?.focus(), 60);
+    if (this._untrap) this._untrap();
+    this._untrap = trapFocus(overlay, () => this.cancel());
+  },
+  _hide() {
+    const overlay = $('#pin-overlay');
+    overlay.classList.remove('is-showing');
+    overlay.setAttribute('aria-hidden', 'true');
+    if (this._untrap) { this._untrap(); this._untrap = null; }
   },
   submit() {
     const inputs = $$('.lock__digit');
     const entered = inputs.map(i => i.value).join('');
     if (hashString(entered) === PIN_HASH) {
       sessionStorage.setItem('pinUnlocked', '1');
-      $('#lock-error').textContent = '';
-      App.showScreen('upload');
+      this.updateStatusPill();
+      this._hide();
+      const r = this._resolve; this._resolve = null; this._reject = null;
+      if (r) r();
     } else {
       $('#lock-error').textContent = 'Incorrect PIN. Try again.';
-      const lock = $('#screen-lock');
-      lock.classList.add('is-shake');
-      setTimeout(() => lock.classList.remove('is-shake'), 350);
+      const overlay = $('#pin-overlay');
+      overlay.classList.add('is-shake');
+      setTimeout(() => overlay.classList.remove('is-shake'), 350);
       inputs.forEach(i => i.value = '');
       inputs[0].focus();
     }
   },
-  lock() {
+  cancel() {
+    this._hide();
+    const j = this._reject; this._resolve = null; this._reject = null;
+    if (j) j(new Error('cancelled'));
+  },
+  /** Clear session + data; called by Lock buttons on dashboard. */
+  lockAndClear() {
     sessionStorage.removeItem('pinUnlocked');
     State.rows = [];
     Object.values(State.charts).forEach(c => c.destroy());
     State.charts = {};
-    PinGate.init();
+    this.updateStatusPill();
+    App.showScreen('upload');
+    Toast.success('Locked. PIN will be required for the next upload.');
   }
 };
 
@@ -2908,6 +2969,14 @@ const UploadArea = {
   async handleFile(file) {
     if (!/\.csv$/i.test(file.name) && file.type !== 'text/csv') {
       Toast.error('Please upload a .csv file (Airwallex export).');
+      return;
+    }
+    // PIN gate — only the upload action is protected, not the page itself.
+    try {
+      await PinGate.requireUnlock();
+    } catch {
+      // User cancelled the PIN prompt; clear file picker and bail quietly.
+      $('#file-input').value = '';
       return;
     }
     $('#upload-loading').style.display = 'inline-flex';
@@ -2951,9 +3020,10 @@ const Dashboard = {
    ============================================================ */
 const App = {
   init() {
-    PinGate.init();
+    PinGate.init();          // Wires PIN modal handlers; does NOT gate the page.
     UploadArea.init();
     this.wireGlobalUI();
+    this.showScreen('upload'); // Always start on upload.
   },
   showScreen(name) {
     $$('.screen').forEach(s => s.classList.remove('is-active'));
@@ -2970,8 +3040,8 @@ const App = {
     $('#export-btn').addEventListener('click', () => ExportUtils.exportCSV());
     $('#print-btn').addEventListener('click', () => ExportUtils.print());
     $('#settings-btn').addEventListener('click', () => Settings.open());
-    $('#lock-btn').addEventListener('click', () => PinGate.lock());
-    $('#lock-btn-2').addEventListener('click', () => PinGate.lock());
+    // "Lock" on dashboard clears session unlock + data and returns to upload.
+    $('#lock-btn-2').addEventListener('click', () => PinGate.lockAndClear());
 
     // Search
     const searchHandler = debounce((e) => {
