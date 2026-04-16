@@ -1477,6 +1477,7 @@ a:hover { text-decoration: underline; }
       <span class="header__divider"></span>
       <span class="header__title" id="dash-title">Expense Report</span>
       <span class="header__file" id="dash-file"></span>
+      <span class="header__file" id="github-sync-status" style="display:none"></span>
     </div>
     <div class="header__right">
       <button class="btn btn--icon" id="reupload-btn" title="Upload a different file" aria-label="Re-upload">
@@ -1516,13 +1517,21 @@ a:hover { text-decoration: underline; }
         <span class="filters__hint">No filters applied · click any chart, project, or merchant to drill down</span>
       </div>
       <div class="filters__right no-print">
+        <select id="date-month-select" class="search__input" style="width:158px;padding:0 8px 0 10px;cursor:pointer" aria-label="Filter by month">
+          <option value="">All months</option>
+        </select>
+        <span style="font-size:var(--text-xs);color:var(--text-muted)">or</span>
+        <input type="date" id="date-from" class="search__input" style="width:128px;padding:0 6px" aria-label="Date from" />
+        <span style="font-size:var(--text-xs);color:var(--text-muted)">→</span>
+        <input type="date" id="date-to" class="search__input" style="width:128px;padding:0 6px" aria-label="Date to" />
+        <span style="width:1px;height:20px;background:var(--border);flex-shrink:0"></span>
         <div class="search">
           <svg class="icon icon-sm"><use href="#i-search"/></svg>
-          <input id="search-input" class="search__input" placeholder="Search merchant, description, employee…" />
+          <input id="search-input" class="search__input" placeholder="Search…" />
         </div>
         <button type="button" class="toggle-group is-on" id="pending-toggle" role="switch" aria-checked="true">
           <span class="toggle"></span>
-          <span>Include pending</span>
+          <span>Pending</span>
         </button>
       </div>
     </div>
@@ -1627,6 +1636,17 @@ a:hover { text-decoration: underline; }
     </div>
     <div class="modal__body">
       <div class="settings-section">
+        <div class="settings-section__title">GitHub Integration</div>
+        <div class="settings-section__subtitle">Store expenses in GitHub so data loads automatically. Requires a fine-grained PAT with Contents read/write on <code>incyt/INCYT-Expense</code>.</div>
+        <div style="display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-3)">
+          <input id="github-pat-input" class="fx-row__input" type="password"
+                 style="text-align:left;flex:1;font-family:SFMono-Regular,Consolas,monospace;font-size:var(--text-xs)"
+                 placeholder="github_pat_xxxxxxxxxxxx" autocomplete="off" />
+          <span id="github-pat-status" style="font-size:var(--text-xs);white-space:nowrap;color:var(--text-muted)"></span>
+        </div>
+        <div style="font-size:10px;color:var(--text-muted)">Stored in localStorage only. Never sent anywhere except GitHub API.</div>
+      </div>
+      <div class="settings-section">
         <div class="settings-section__title">FX Rates</div>
         <div class="settings-section__subtitle">Used to normalise non-AUD transactions. Edit and Save to reprocess.</div>
         <div id="fx-rows"></div>
@@ -1705,12 +1725,15 @@ const State = {
     merchant: null,
     category: null,
     searchText: '',
-    includePending: true
+    includePending: true,
+    dateFrom: null,       // 'YYYY-MM-DD' or null
+    dateTo: null          // 'YYYY-MM-DD' or null
   },
   sort: { col: 'date', dir: 'desc' },
   page: 0,
   pageSize: 25,
   charts: {},            // Chart.js instances
+  githubLoaded: false
 };
 
 /* ============================================================
@@ -1776,6 +1799,167 @@ const FX = {
     const rates = this.getRates();
     const rate = rates[currency] ?? 1;
     return amount * rate;
+  }
+};
+
+/* ============================================================
+   GitHub Sync — persists data as JSON in the repo
+   ============================================================ */
+const GitHubSync = {
+  REPO: 'incyt/INCYT-Expense',
+  PATH: 'data/expenses.json',
+  _sha: null,
+  _saving: false,
+
+  getPAT()  { return localStorage.getItem('github_pat') || ''; },
+  setPAT(v) { localStorage.setItem('github_pat', (v || '').trim()); },
+  hasPAT()  { return !!this.getPAT(); },
+
+  _headers() {
+    return {
+      Authorization: 'token ' + this.getPAT(),
+      Accept: 'application/vnd.github.v3+json',
+      'Content-Type': 'application/json',
+      'X-GitHub-Api-Version': '2022-11-28'
+    };
+  },
+
+  async fetch() {
+    if (!this.hasPAT()) return null;
+    const url = `https://api.github.com/repos/${this.REPO}/contents/${this.PATH}`;
+    const resp = await fetch(url, { headers: this._headers() });
+    if (resp.status === 404) return null;
+    if (resp.status === 401 || resp.status === 403)
+      throw new Error('GitHub auth failed. Check your PAT in Settings.');
+    if (!resp.ok) throw new Error('GitHub API error: ' + resp.status);
+    const json = await resp.json();
+    this._sha = json.sha;
+    const raw = atob(json.content.replace(/\n/g, ''));
+    const bytes = Uint8Array.from(raw, c => c.charCodeAt(0));
+    return JSON.parse(new TextDecoder().decode(bytes));
+  },
+
+  async push(data) {
+    if (!this.hasPAT()) return;
+    if (this._saving) return;
+    this._saving = true;
+    this._setStatus('Syncing…');
+    try {
+      data.updatedAt = new Date().toISOString();
+      const body = JSON.stringify(data, null, 2);
+      const encoded = btoa(String.fromCharCode(...new TextEncoder().encode(body)));
+      const payload = {
+        message: 'Update expenses ' + new Date().toISOString().slice(0, 10),
+        content: encoded,
+        branch: 'main'
+      };
+      if (this._sha) payload.sha = this._sha;
+      const url = `https://api.github.com/repos/${this.REPO}/contents/${this.PATH}`;
+      let resp = await fetch(url, { method: 'PUT', headers: this._headers(), body: JSON.stringify(payload) });
+      if (resp.status === 409) {
+        // Conflict — re-fetch SHA and retry (last-write-wins)
+        await this.fetch();
+        payload.sha = this._sha;
+        resp = await fetch(url, { method: 'PUT', headers: this._headers(), body: JSON.stringify(payload) });
+      }
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(resp.status + ' ' + (err.message || ''));
+      }
+      const result = await resp.json();
+      this._sha = result.content.sha;
+      this._setStatus('Saved');
+      setTimeout(() => this._setStatus(''), 2500);
+    } catch (e) {
+      this._setStatus('Sync failed', true);
+      throw e;
+    } finally {
+      this._saving = false;
+    }
+  },
+
+  _setStatus(text, isError) {
+    const el = document.getElementById('github-sync-status');
+    if (!el) return;
+    el.textContent = text;
+    el.style.display = text ? 'inline-block' : 'none';
+    el.style.color = isError ? 'var(--error)' : 'var(--text-muted)';
+  },
+
+  serialize() {
+    const rowMap = {};
+    for (const r of State.rows) {
+      const key = r.expenseId || '_noeid_' + hashString(r.date + r.merchant + r.origAmount);
+      const obj = { ...r };
+      delete obj.uid;
+      delete obj.amountAUD;
+      delete obj.project;
+      delete obj.projectSource;
+      rowMap[key] = obj;
+    }
+    return { version: 1, updatedAt: new Date().toISOString(), updatedBy: 'dashboard', rows: rowMap };
+  },
+
+  deserialize(data) {
+    if (!data || !data.rows) return [];
+    CSVParser._uidCounter = 0;
+    return Object.values(data.rows).map(stored => {
+      const r = { ...stored };
+      r.uid = '_row_' + (++CSVParser._uidCounter);
+      r.amountAUD = FX.convertToAUD(r.origAmount, r.origCurrency);
+      const p = ProjectMapper.derive(r);
+      r.project = p.name;
+      r.projectSource = p.source;
+      return r;
+    }).filter(r => r.date);
+  },
+
+  merge(existingRows, newRows) {
+    const map = new Map();
+    for (const r of existingRows) {
+      const key = r.expenseId || '_noeid_' + hashString(r.date + r.merchant + r.origAmount);
+      map.set(key, r);
+    }
+    let added = 0;
+    for (const r of newRows) {
+      const key = r.expenseId || '_noeid_' + hashString(r.date + r.merchant + r.origAmount);
+      const existing = map.get(key);
+      if (existing && existing._edited) {
+        r._edited = existing._edited;
+      }
+      if (!existing) added++;
+      map.set(key, r);
+    }
+    return { rows: Array.from(map.values()), added, updated: newRows.length - added };
+  }
+};
+
+/* ============================================================
+   Inline Edit — tracks per-field edits with audit trail
+   ============================================================ */
+const InlineEdit = {
+  EDITABLE_FIELDS: ['description', 'comment', 'category'],
+
+  apply(row, field, newValue) {
+    if (!row) return;
+    if (!row._edited) row._edited = {};
+    if (!row._edited[field]) {
+      row._edited[field] = { original: row[field], editedAt: new Date().toISOString() };
+    }
+    row._edited[field].editedAt = new Date().toISOString();
+    row[field] = newValue;
+    const rawMap = { description: 'Description (expense)', comment: 'User comment(s)', category: 'Expense category' };
+    if (rawMap[field] && row.raw) row.raw[rawMap[field]] = newValue;
+  },
+
+  _saveTimer: null,
+  saveToGitHub() {
+    clearTimeout(this._saveTimer);
+    this._saveTimer = setTimeout(async () => {
+      if (!GitHubSync.hasPAT()) return;
+      try { await GitHubSync.push(GitHubSync.serialize()); }
+      catch (e) { Toast.error('Save failed: ' + e.message); }
+    }, 1200);
   }
 };
 
@@ -1989,12 +2173,16 @@ const FilterState = {
   clear() {
     State.filters = {
       project: null, month: null, merchant: null, category: null,
-      searchText: '', includePending: true
+      searchText: '', includePending: true, dateFrom: null, dateTo: null
     };
     State.page = 0;
     $('#search-input').value = '';
     const tg = $('#pending-toggle');
     tg.classList.add('is-on');
+    tg.setAttribute('aria-checked', 'true');
+    const ms = $('#date-month-select'); if (ms) ms.value = '';
+    const df = $('#date-from'); if (df) df.value = '';
+    const dt = $('#date-to'); if (dt) dt.value = '';
     Dashboard.renderAll();
   },
   remove(key) {
@@ -2004,6 +2192,17 @@ const FilterState = {
     } else if (key === 'includePending') {
       State.filters.includePending = true;
       $('#pending-toggle').classList.add('is-on');
+      $('#pending-toggle').setAttribute('aria-checked', 'true');
+    } else if (key === 'dateRange') {
+      State.filters.dateFrom = null;
+      State.filters.dateTo = null;
+      State.filters.month = null;
+      const ms = $('#date-month-select'); if (ms) ms.value = '';
+      const df = $('#date-from'); if (df) df.value = '';
+      const dt = $('#date-to'); if (dt) dt.value = '';
+    } else if (key === 'month') {
+      State.filters.month = null;
+      const ms = $('#date-month-select'); if (ms) ms.value = '';
     } else {
       State.filters[key] = null;
     }
@@ -2016,6 +2215,8 @@ const FilterState = {
     return State.rows.filter(r => {
       if (f.project && r.project !== f.project) return false;
       if (f.month && r.month !== f.month) return false;
+      if (f.dateFrom && r.date < f.dateFrom) return false;
+      if (f.dateTo && r.date > f.dateTo) return false;
       if (f.merchant && r.merchant !== f.merchant) return false;
       if (f.category && r.category !== f.category) return false;
       if (!f.includePending && r.txnStatus !== 'Succeeded') return false;
@@ -2034,6 +2235,11 @@ const FilterState = {
     const chips = [];
     if (f.project)  chips.push({ key: 'project',  label: 'Project',  value: f.project });
     if (f.month)    chips.push({ key: 'month',    label: 'Month',    value: f.month });
+    if (f.dateFrom || f.dateTo) {
+      const label = f.dateFrom && f.dateTo ? `${f.dateFrom} → ${f.dateTo}`
+        : f.dateFrom ? `From ${f.dateFrom}` : `To ${f.dateTo}`;
+      chips.push({ key: 'dateRange', label: 'Dates', value: label });
+    }
     if (f.merchant) chips.push({ key: 'merchant', label: 'Merchant', value: f.merchant });
     if (f.category) chips.push({ key: 'category', label: 'Category', value: f.category });
     if (f.searchText) chips.push({ key: 'searchText', label: 'Search', value: '"' + f.searchText + '"' });
@@ -2559,6 +2765,38 @@ const Drawer = {
     const editBtn = $('#drawer-edit-project');
     if (editBtn) editBtn.addEventListener('click', () => Drawer.editProject(row));
 
+    // Wire inline field edit buttons
+    $$('.drawer-edit-field', $('#drawer-body')).forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const field = btn.dataset.field;
+        const span = btn.closest('.editable-value');
+        const currentVal = row[field] || '';
+        span.innerHTML = `
+          <input class="fx-row__input" style="text-align:left;width:100%;font-size:var(--text-sm);margin-bottom:4px" value="${escapeHTML(currentVal)}" />
+          <div style="display:flex;gap:4px">
+            <button class="btn btn--primary ie-save" style="padding:4px 10px;font-size:var(--text-xs)">Save</button>
+            <button class="btn btn--ghost ie-cancel" style="padding:4px 8px;font-size:var(--text-xs)">Cancel</button>
+          </div>`;
+        const input = span.querySelector('input');
+        input.focus(); input.select();
+        span.querySelector('.ie-save').onclick = () => {
+          InlineEdit.apply(row, field, input.value.trim());
+          InlineEdit.saveToGitHub();
+          Dashboard.renderAll();
+          Drawer.open(State.rows.find(r => r.uid === row.uid) || row);
+          Toast.success(field + ' updated.');
+        };
+        span.querySelector('.ie-cancel').onclick = () => {
+          Drawer.open(State.rows.find(r => r.uid === row.uid) || row);
+        };
+        input.addEventListener('keydown', (ev) => {
+          if (ev.key === 'Enter') { ev.preventDefault(); span.querySelector('.ie-save').click(); }
+          if (ev.key === 'Escape') { ev.preventDefault(); span.querySelector('.ie-cancel').click(); }
+        });
+      });
+    });
+
     const drawer = $('#drawer');
     drawer.classList.add('is-open');
     $('#drawer-backdrop').classList.add('is-open');
@@ -2570,11 +2808,15 @@ const Drawer = {
   renderBody(row) {
     const e = escapeHTML;
     const txt = (v) => e(v == null || v === '' ? '—' : String(v));
+    const editableField = (field, value) => {
+      const badge = row._edited && row._edited[field]
+        ? ` <span class="badge badge--auto" title="Original: ${e(row._edited[field].original)}">edited</span>` : '';
+      return `<span class="editable-value" data-field="${field}">${e(value || '—')}${badge} <button class="btn btn--ghost drawer-edit-field" data-field="${field}" style="font-size:var(--text-xs);padding:1px 5px;margin-left:4px;opacity:.6">Edit</button></span>`;
+    };
     const sections = [
       {
         title: 'Project',
         rows: [
-          // This row is the single place that intentionally includes HTML (the Edit button).
           { label: 'Project', html: `${e(row.project)} <button id="drawer-edit-project" class="btn btn--ghost" style="font-size:var(--text-xs);padding:2px 6px;margin-left:4px">Edit</button>` },
           { label: 'Source', value: row.projectSource === 'department' ? 'From Department/Project'
               : row.projectSource === 'rule' ? 'Matched rule'
@@ -2590,9 +2832,9 @@ const Drawer = {
           { label: 'Merchant (raw)', value: row.raw['Merchant (user entered)'] },
           { label: 'Location', value: row.raw['Merchant location'] },
           { label: 'Country', value: row.raw['Merchant country'] },
-          { label: 'Description', value: row.description },
+          { label: 'Description', html: editableField('description', row.description) },
           { label: 'Line description', value: row.lineDescription },
-          { label: 'User comment', value: row.comment }
+          { label: 'User comment', html: editableField('comment', row.comment) }
         ]
       },
       {
@@ -2607,7 +2849,7 @@ const Drawer = {
       {
         title: 'Categorisation',
         rows: [
-          { label: 'Expense category', value: row.category },
+          { label: 'Expense category', html: editableField('category', row.category) },
           { label: 'GL code', value: row.categoryGL },
           { label: 'Customer type', value: row.customerType },
           { label: 'Tax rate', value: row.raw['Tax rate name'] }
@@ -2669,8 +2911,10 @@ const Drawer = {
     const commit = () => {
       const name = input.value.trim();
       if (!name) return input.focus();
+      InlineEdit.apply(row, 'project', name);
       ProjectMapper.setOverride(row.expenseId, name);
       reprocessRows();
+      InlineEdit.saveToGitHub();
       const updated = State.rows.find(r => r.uid === row.uid);
       if (updated) Drawer.open(updated);
       Toast.success('Project override saved.');
@@ -2682,6 +2926,7 @@ const Drawer = {
     const clear = () => {
       ProjectMapper.setOverride(row.expenseId, '');
       reprocessRows();
+      InlineEdit.saveToGitHub();
       const updated = State.rows.find(r => r.uid === row.uid);
       if (updated) Drawer.open(updated);
       Toast.success('Override cleared.');
@@ -2709,6 +2954,11 @@ const Settings = {
   open() {
     this.renderFX();
     this.renderRules();
+    // GitHub PAT
+    const patInput = $('#github-pat-input');
+    if (patInput) patInput.value = GitHubSync.getPAT();
+    const patStatus = $('#github-pat-status');
+    if (patStatus) patStatus.textContent = GitHubSync.hasPAT() ? 'Connected' : 'Not configured';
     const m = $('#settings-modal');
     m.classList.add('is-open');
     this._lastFocus = document.activeElement;
@@ -2767,7 +3017,14 @@ const Settings = {
       if (pat && nm) rules.push({ pattern: pat, name: nm });
     });
     ProjectMapper.setRules(rules);
+    // Save GitHub PAT
+    const patVal = $('#github-pat-input')?.value || '';
+    GitHubSync.setPAT(patVal);
     reprocessRows();
+    // If we have data and a PAT, push to GitHub
+    if (State.rows.length && GitHubSync.hasPAT()) {
+      GitHubSync.push(GitHubSync.serialize()).catch(e => Toast.error('Sync: ' + e.message));
+    }
     Toast.success('Settings saved. Data reprocessed.');
     this.close();
   },
@@ -3015,14 +3272,30 @@ const UploadArea = {
     }
     $('#upload-loading').style.display = 'inline-flex';
     try {
-      const rows = await CSVParser.parse(file);
-      if (!rows.length) throw new Error('No valid rows parsed.');
-      State.rows = rows;
+      const newRows = await CSVParser.parse(file);
+      if (!newRows.length) throw new Error('No valid rows parsed.');
+
+      // Merge with existing data (dedup by Expense Id)
+      if (State.rows.length) {
+        const result = GitHubSync.merge(State.rows, newRows);
+        State.rows = result.rows;
+        Toast.success(`Merged: ${result.added} new, ${result.updated} updated`);
+      } else {
+        State.rows = newRows;
+      }
+
       State.fileName = file.name;
       $('#dash-file').textContent = file.name;
       assignProjectColors();
       App.showScreen('dashboard');
       Dashboard.renderAll();
+
+      // Push to GitHub in background
+      if (GitHubSync.hasPAT()) {
+        GitHubSync.push(GitHubSync.serialize())
+          .then(() => Toast.success(`Synced ${State.rows.length} rows to GitHub`))
+          .catch(err => Toast.error('GitHub sync failed: ' + err.message));
+      }
     } catch (err) {
       console.error(err);
       Toast.error(err.message || 'Could not parse this CSV.');
@@ -3036,8 +3309,55 @@ const UploadArea = {
 /* ============================================================
    Dashboard orchestrator
    ============================================================ */
+/* ============================================================
+   Date Filter — month selector + custom range
+   ============================================================ */
+const DateFilter = {
+  init() {
+    const sel = $('#date-month-select');
+    if (sel) sel.addEventListener('change', () => {
+      const val = sel.value;
+      State.filters.month = val || null;
+      State.filters.dateFrom = null;
+      State.filters.dateTo = null;
+      $('#date-from').value = '';
+      $('#date-to').value = '';
+      State.page = 0;
+      Dashboard.renderAll();
+    });
+    const applyRange = () => {
+      const from = $('#date-from')?.value || '';
+      const to = $('#date-to')?.value || '';
+      State.filters.dateFrom = from || null;
+      State.filters.dateTo = to || null;
+      if (from || to) {
+        State.filters.month = null;
+        const sel = $('#date-month-select');
+        if (sel) sel.value = '';
+      }
+      State.page = 0;
+      Dashboard.renderAll();
+    };
+    $('#date-from')?.addEventListener('change', applyRange);
+    $('#date-to')?.addEventListener('change', applyRange);
+  },
+  populateMonths() {
+    const sel = $('#date-month-select');
+    if (!sel) return;
+    const months = Array.from(new Set(State.rows.map(r => r.month))).sort().reverse();
+    const current = State.filters.month || '';
+    sel.innerHTML = '<option value="">All months</option>'
+      + months.map(m => {
+        const [y, mo] = m.split('-');
+        const label = new Date(parseInt(y), parseInt(mo) - 1).toLocaleDateString('en-AU', { year: 'numeric', month: 'long' });
+        return `<option value="${escapeHTML(m)}" ${m === current ? 'selected' : ''}>${escapeHTML(label)}</option>`;
+      }).join('');
+  }
+};
+
 const Dashboard = {
   renderAll() {
+    DateFilter.populateMonths();
     const rows = FilterState.getFiltered();
     KPI.render(rows);
     FilterBar.render();
@@ -3053,11 +3373,30 @@ const Dashboard = {
    App Lifecycle
    ============================================================ */
 const App = {
-  init() {
-    PinGate.init();          // Wires PIN modal handlers; does NOT gate the page.
+  async init() {
+    PinGate.init();
     UploadArea.init();
     this.wireGlobalUI();
-    this.showScreen('upload'); // Always start on upload.
+    DateFilter.init();
+
+    // Try auto-loading from GitHub
+    if (GitHubSync.hasPAT()) {
+      try {
+        const data = await GitHubSync.fetch();
+        if (data && data.rows && Object.keys(data.rows).length > 0) {
+          State.rows = GitHubSync.deserialize(data);
+          State.githubLoaded = true;
+          assignProjectColors();
+          this.showScreen('dashboard');
+          Dashboard.renderAll();
+          Toast.success(`Loaded ${State.rows.length} expenses from GitHub`);
+          return;
+        }
+      } catch (err) {
+        console.warn('GitHub auto-load failed:', err.message);
+      }
+    }
+    this.showScreen('upload');
   },
   showScreen(name) {
     $$('.screen').forEach(s => s.classList.remove('is-active'));
