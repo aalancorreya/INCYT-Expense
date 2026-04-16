@@ -3,6 +3,10 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+<meta http-equiv="Pragma" content="no-cache" />
+<meta http-equiv="Expires" content="0" />
+<meta name="version" content="2026-04-16.3" />
 <title>INCYT · Expense Report</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%232563EB'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-family='Inter,sans-serif' font-weight='800' font-size='16' fill='white'%3EI%3C/text%3E%3C/svg%3E" />
 
@@ -234,106 +238,130 @@ a:hover { text-decoration: underline; }
 }
 
 /* ==========================================================================
-   PIN Lock Screen
+   PIN Modal (upload-time gate only)
    ========================================================================== */
-.lock {
+.pinmodal {
   position: fixed;
   inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-overlay);
+  background: rgba(17, 19, 24, 0.55);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   padding: var(--space-4);
   z-index: 70;
   opacity: 0;
   pointer-events: none;
   transition: opacity 200ms var(--ease-out);
 }
-.lock.is-showing {
+.pinmodal.is-showing {
   opacity: 1;
   pointer-events: auto;
 }
-.lock .lock__card { transform: translateY(8px); transition: transform 220ms var(--ease-out); }
-.lock.is-showing .lock__card { transform: translateY(0); }
-.lock__card {
+.pinmodal__card {
   width: 100%;
-  max-width: 380px;
+  max-width: 360px;
   background: var(--bg-surface);
-  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-md);
-  padding: var(--space-10) var(--space-8) var(--space-8);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  padding: var(--space-8) var(--space-6) var(--space-6);
   text-align: center;
+  transform: translateY(12px) scale(0.98);
+  opacity: 0;
+  transition: transform 240ms var(--ease-out), opacity 200ms var(--ease-out);
 }
-.lock__brand {
-  font-size: var(--text-xl);
-  font-weight: 800;
-  letter-spacing: -0.5px;
-  color: var(--text-primary);
+.pinmodal.is-showing .pinmodal__card {
+  transform: translateY(0) scale(1);
+  opacity: 1;
 }
-.lock__divider {
-  height: 1px;
-  background: var(--border);
-  margin: var(--space-5) 0 var(--space-6);
-}
-.lock__title {
-  font-size: var(--text-lg);
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: var(--space-2);
-}
-.lock__subtitle {
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-  margin-bottom: var(--space-6);
-}
-.lock__pin {
-  display: flex;
+.pinmodal__icon {
+  display: inline-flex;
+  align-items: center;
   justify-content: center;
-  gap: var(--space-3);
-  margin-bottom: var(--space-4);
-}
-.lock__digit {
   width: 52px;
   height: 52px;
-  border: 1px solid var(--border);
+  margin: 0 auto var(--space-4);
+  background: var(--accent-subtle);
+  color: var(--accent);
+  border-radius: var(--radius-full);
+}
+.pinmodal__title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 6px;
+  letter-spacing: -0.2px;
+}
+.pinmodal__subtitle {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin: 0 0 var(--space-6);
+  line-height: 1.45;
+}
+.pinmodal__pin {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: var(--space-3);
+}
+.pinmodal__digit {
+  width: 54px;
+  height: 62px;
+  border: 1.5px solid var(--border);
   border-radius: var(--radius-md);
   text-align: center;
-  font-size: var(--text-2xl);
+  font-size: 28px;
   font-weight: 600;
   color: var(--text-primary);
   background: var(--bg-surface);
-  transition: border-color 150ms var(--ease-out), box-shadow 150ms var(--ease-out);
+  transition: border-color 150ms var(--ease-out), box-shadow 150ms var(--ease-out), background 150ms var(--ease-out);
   -moz-appearance: textfield;
+  caret-color: var(--accent);
 }
-.lock__digit::-webkit-outer-spin-button,
-.lock__digit::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
-.lock__digit:focus {
+.pinmodal__digit::-webkit-outer-spin-button,
+.pinmodal__digit::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.pinmodal__digit:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.15);
 }
-.lock__error {
+.pinmodal__digit:not(:placeholder-shown),
+.pinmodal__digit[value]:not([value=""]) {
+  border-color: var(--border-strong);
+  background: #FAFBFC;
+}
+.pinmodal__error {
   font-size: var(--text-sm);
   color: var(--error);
-  margin-top: var(--space-3);
+  margin: var(--space-2) 0 var(--space-4);
   min-height: 18px;
 }
-.lock__footer {
-  margin-top: var(--space-8);
-  font-size: var(--text-xs);
+.pinmodal__cancel {
+  display: inline-block;
+  font-size: var(--text-sm);
   color: var(--text-muted);
+  font-weight: 500;
+  padding: 6px 14px;
+  border-radius: var(--radius-md);
+  transition: color 150ms var(--ease-out), background 150ms var(--ease-out);
 }
-.lock.is-shake .lock__pin { animation: shake 300ms var(--ease-out); }
+.pinmodal__cancel:hover {
+  color: var(--text-primary);
+  background: var(--bg-surface-hover);
+}
+.pinmodal.is-shake .pinmodal__pin { animation: shake 320ms var(--ease-out); }
 @keyframes shake {
   0%, 100% { transform: translateX(0); }
-  20% { transform: translateX(-5px); }
-  40% { transform: translateX(5px); }
-  60% { transform: translateX(-3px); }
-  80% { transform: translateX(3px); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(4px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pinmodal,
+  .pinmodal__card { transition: none !important; }
+  .pinmodal.is-shake .pinmodal__pin { animation: none !important; }
 }
 
 /* ==========================================================================
@@ -1241,7 +1269,7 @@ a:hover { text-decoration: underline; }
   .modal,
   .toast,
   .upload,
-  .lock,
+  .pinmodal,
   .pagination,
   .sort-icon,
   .no-print {
@@ -1372,25 +1400,23 @@ a:hover { text-decoration: underline; }
 </svg>
 
 <!-- ========================================================================
-     PIN Overlay (shown only when an upload is attempted without unlock)
+     PIN Overlay (shown only when an upload is attempted)
      ======================================================================== -->
-<div id="pin-overlay" class="lock" role="dialog" aria-modal="true" aria-labelledby="lock-title" aria-hidden="true">
-  <div class="lock__card">
-    <div class="lock__brand">INCYT</div>
-    <div class="lock__divider"></div>
-    <h1 class="lock__title" id="lock-title">Unlock to upload</h1>
-    <p class="lock__subtitle">Enter the 4-digit PIN</p>
-    <div class="lock__pin">
-      <input class="lock__digit" type="password" inputmode="numeric" maxlength="1" autocomplete="off" data-pin="0" aria-label="PIN digit 1" />
-      <input class="lock__digit" type="password" inputmode="numeric" maxlength="1" autocomplete="off" data-pin="1" aria-label="PIN digit 2" />
-      <input class="lock__digit" type="password" inputmode="numeric" maxlength="1" autocomplete="off" data-pin="2" aria-label="PIN digit 3" />
-      <input class="lock__digit" type="password" inputmode="numeric" maxlength="1" autocomplete="off" data-pin="3" aria-label="PIN digit 4" />
+<div id="pin-overlay" class="pinmodal" role="dialog" aria-modal="true" aria-labelledby="pin-title" aria-hidden="true">
+  <div class="pinmodal__card">
+    <div class="pinmodal__icon">
+      <svg class="icon" style="width:26px;height:26px"><use href="#i-lock"/></svg>
     </div>
-    <div id="lock-error" class="lock__error" role="alert" aria-live="polite"></div>
-    <div style="margin-top: var(--space-4); display:flex; justify-content:center; gap:var(--space-2)">
-      <button class="btn btn--ghost" id="pin-cancel" style="font-size:var(--text-xs)">Cancel</button>
+    <h2 class="pinmodal__title" id="pin-title">Verify PIN</h2>
+    <p class="pinmodal__subtitle">A 4-digit PIN is required to process your upload.</p>
+    <div class="pinmodal__pin">
+      <input class="pinmodal__digit" type="password" inputmode="numeric" maxlength="1" autocomplete="off" aria-label="PIN digit 1" />
+      <input class="pinmodal__digit" type="password" inputmode="numeric" maxlength="1" autocomplete="off" aria-label="PIN digit 2" />
+      <input class="pinmodal__digit" type="password" inputmode="numeric" maxlength="1" autocomplete="off" aria-label="PIN digit 3" />
+      <input class="pinmodal__digit" type="password" inputmode="numeric" maxlength="1" autocomplete="off" aria-label="PIN digit 4" />
     </div>
-    <div class="lock__footer">Confidential — uploaded data stays in your browser</div>
+    <div id="pin-error" class="pinmodal__error" role="alert" aria-live="polite"></div>
+    <button type="button" class="pinmodal__cancel" id="pin-cancel">Cancel</button>
   </div>
 </div>
 
@@ -2845,7 +2871,7 @@ const PinGate = {
     // Set up input handlers once (idempotent)
     if (this._wired) return;
     this._wired = true;
-    const inputs = $$('.lock__digit');
+    const inputs = $$('.pinmodal__digit');
     inputs.forEach((inp, idx) => {
       inp.addEventListener('input', (e) => {
         const v = e.target.value.replace(/\D/g, '').slice(-1);
@@ -2892,8 +2918,8 @@ const PinGate = {
     const overlay = $('#pin-overlay');
     overlay.classList.add('is-showing');
     overlay.setAttribute('aria-hidden', 'false');
-    $('#lock-error').textContent = '';
-    const inputs = $$('.lock__digit');
+    $('#pin-error').textContent = '';
+    const inputs = $$('.pinmodal__digit');
     inputs.forEach(i => i.value = '');
     setTimeout(() => inputs[0]?.focus(), 60);
     if (this._untrap) this._untrap();
@@ -2906,8 +2932,9 @@ const PinGate = {
     if (this._untrap) { this._untrap(); this._untrap = null; }
   },
   submit() {
-    const inputs = $$('.lock__digit');
+    const inputs = $$('.pinmodal__digit');
     const entered = inputs.map(i => i.value).join('');
+    if (entered.length !== 4) return;
     if (hashString(entered) === PIN_HASH) {
       sessionStorage.setItem('pinUnlocked', '1');
       this.updateStatusPill();
@@ -2915,7 +2942,7 @@ const PinGate = {
       const r = this._resolve; this._resolve = null; this._reject = null;
       if (r) r();
     } else {
-      $('#lock-error').textContent = 'Incorrect PIN. Try again.';
+      $('#pin-error').textContent = 'Incorrect PIN. Try again.';
       const overlay = $('#pin-overlay');
       overlay.classList.add('is-shake');
       setTimeout(() => overlay.classList.remove('is-shake'), 350);
