@@ -3,10 +3,8 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
-<meta http-equiv="Pragma" content="no-cache" />
-<meta http-equiv="Expires" content="0" />
-<meta name="version" content="2026-04-16.3" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://api.github.com; frame-ancestors 'none'; base-uri 'self'; form-action 'none';" />
+<meta name="version" content="2026-04-17.1" />
 <title>INCYT · Expense Report</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%232563EB'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-family='Inter,sans-serif' font-weight='800' font-size='16' fill='white'%3EI%3C/text%3E%3C/svg%3E" />
 
@@ -14,8 +12,12 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 
-<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"
+        integrity="sha384-D/t0ZMqQW31H3az8ktEiNb39wyKnS82iFY52QPACM+IjKW3jDUhyIgh2PApRqJZs"
+        crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
+        integrity="sha384-9nhczxUqK87bcKHh20fSQcTGD4qq5GhayNYSYWqwBkINBhOfQLg/P5HG5lF1urn4"
+        crossorigin="anonymous"></script>
 
 <style>
 /* ==========================================================================
@@ -1648,7 +1650,7 @@ a:hover { text-decoration: underline; }
                  placeholder="github_pat_xxxxxxxxxxxx" autocomplete="off" />
           <span id="github-pat-status" style="font-size:var(--text-xs);white-space:nowrap;color:var(--text-muted)"></span>
         </div>
-        <div style="font-size:10px;color:var(--text-muted)">Stored in localStorage only. Never sent anywhere except GitHub API.</div>
+        <div style="font-size:10px;color:var(--text-muted)">Stored in sessionStorage — cleared when you close this tab. Sent only to api.github.com.</div>
       </div>
       <div class="settings-section">
         <div class="settings-section__title">FX Rates</div>
@@ -1815,8 +1817,13 @@ const GitHubSync = {
   _sha: null,
   _saving: false,
 
-  getPAT()  { return localStorage.getItem('github_pat') || ''; },
-  setPAT(v) { localStorage.setItem('github_pat', (v || '').trim()); },
+  getPAT()  { return sessionStorage.getItem('github_pat') || ''; },
+  setPAT(v) {
+    const t = (v || '').trim();
+    if (t) sessionStorage.setItem('github_pat', t);
+    else sessionStorage.removeItem('github_pat');
+    try { localStorage.removeItem('github_pat'); } catch (e) {}
+  },
   hasPAT()  { return !!this.getPAT(); },
 
   _headers() {
@@ -2757,10 +2764,15 @@ const Drawer = {
       ? 'Originally ' + fmtCurrency(row.origAmount, row.origCurrency)
       : '';
 
-    // Link
+    // Link — only accept https:// URLs to prevent javascript:/data: XSS from tampered CSV
     const link = $('#drawer-link');
-    if (row.url) { link.href = row.url; link.style.display = 'inline-flex'; }
-    else { link.style.display = 'none'; }
+    if (row.url && /^https:\/\//i.test(row.url)) {
+      link.href = row.url;
+      link.style.display = 'inline-flex';
+    } else {
+      link.removeAttribute('href');
+      link.style.display = 'none';
+    }
 
     // Sections
     $('#drawer-body').innerHTML = this.renderBody(row);
