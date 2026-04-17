@@ -11,5 +11,9 @@ Desktop.ini
 *.swo
 *~
 
-# Node (in case anyone adds tooling later)
+# Node
 node_modules/
+
+# Environment
+.env
+.env.local
