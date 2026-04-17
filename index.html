@@ -453,14 +453,15 @@ a:hover { text-decoration: underline; }
   margin-bottom: var(--space-8);
 }
 .upload__zone {
-  border: 2px dashed var(--border);
+  display: block;
+  border: 2px dashed var(--border-strong);
   border-radius: var(--radius-lg);
-  padding: var(--space-16) var(--space-8);
+  padding: var(--space-12) var(--space-8);
   background: var(--bg-surface);
   cursor: pointer;
   transition: border-color 200ms var(--ease-out), background 200ms var(--ease-out);
 }
-.upload__zone:hover { border-color: var(--border-strong); }
+.upload__zone:hover { border-color: var(--accent); background: var(--accent-subtle); }
 .upload__zone.is-dragging {
   border-color: var(--accent);
   background: var(--accent-subtle);
@@ -1438,7 +1439,10 @@ a:hover { text-decoration: underline; }
       <span class="header__title">Expense Report</span>
     </div>
     <div class="header__right">
-      <span class="header__file" id="pin-status" style="display:none">Unlocked for upload</span>
+      <!-- Settings gear on upload screen for GitHub PAT setup -->
+      <button class="btn btn--icon" id="upload-settings-btn" title="Settings (GitHub PAT)" aria-label="Settings">
+        <svg class="icon"><use href="#i-settings"/></svg>
+      </button>
     </div>
   </header>
 
@@ -3167,7 +3171,7 @@ const PinGate = {
     $('#pin-overlay')?.addEventListener('click', (e) => {
       if (e.target.id === 'pin-overlay') this.cancel();
     });
-    this.updateStatusPill();
+    // (status pill removed — settings gear replaces it)
   },
   /** Returns a promise that resolves when the user is unlocked, rejects if they cancel. */
   requireUnlock() {
@@ -3201,7 +3205,7 @@ const PinGate = {
     if (entered.length !== 4) return;
     if (hashString(entered) === PIN_HASH) {
       sessionStorage.setItem('pinUnlocked', '1');
-      this.updateStatusPill();
+      // (status pill removed — settings gear replaces it)
       this._hide();
       const r = this._resolve; this._resolve = null; this._reject = null;
       if (r) r();
@@ -3225,7 +3229,7 @@ const PinGate = {
     State.rows = [];
     Object.values(State.charts).forEach(c => c.destroy());
     State.charts = {};
-    this.updateStatusPill();
+    // (status pill removed — settings gear replaces it)
     App.showScreen('upload');
     Toast.success('Locked. PIN will be required for the next upload.');
   }
@@ -3403,6 +3407,9 @@ const App = {
     $(`#screen-${name}`).classList.add('is-active');
   },
   wireGlobalUI() {
+    // Settings button on upload screen (for GitHub PAT setup before first upload)
+    $('#upload-settings-btn')?.addEventListener('click', () => Settings.open());
+
     // Header buttons
     $('#reupload-btn').addEventListener('click', () => {
       State.rows = [];
