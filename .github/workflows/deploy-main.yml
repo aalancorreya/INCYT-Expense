@@ -1,0 +1,28 @@
+name: Deploy main to gh-pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: pages-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Publish to gh-pages root
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: .
+          keep_files: true
+          exclude_assets: '.github,.git,.gitignore,node_modules'
+          commit_message: "Deploy ${{ github.sha }} to gh-pages root"
