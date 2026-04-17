@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: pages-production
+  group: gh-pages-write
   cancel-in-progress: false
 
 jobs:
