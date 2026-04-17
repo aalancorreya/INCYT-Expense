@@ -1,6 +1,6 @@
 # INCYT Expense Report Dashboard
 
-A single-file, static web tool that transforms Airwallex CSV expense exports into an interactive drill-down report of project expenditure. Built as a standalone `index.html` file with no build step, designed for deployment on GitHub Pages. All data processing happens client-side in the browser -- no data leaves your device.
+A single-file static web tool that transforms Airwallex CSV expense exports into an interactive drill-down report of project expenditure. Built as a standalone `index.html` file with no build step, designed for deployment on GitHub Pages. CSV parsing and all rendering happen client-side in the browser. Optionally, edits and the normalised dataset can be persisted back to a GitHub repository via the GitHub REST API (see **GitHub Sync** below).
 
 ![Dashboard](docs/dashboard.png)
 
@@ -19,8 +19,10 @@ A single-file, static web tool that transforms Airwallex CSV expense exports int
 - **Merchant top-10 bar chart** -- highest-spend merchants ranked
 - **Sortable transaction table** -- full transaction list with column sorting; click any row to open a detail drawer with all fields
 - **Transaction detail drawer** -- slide-out panel showing every field for a selected transaction, including FX conversion details
-- **FX rate settings** -- configure manual exchange rates (USD, EUR, GBP to AUD) via the Settings modal; rates are stored in session storage
-- **Project name override rules** -- define keyword-based derivation rules to normalise or remap project names from raw CSV data
+- **FX rate settings** -- configure manual exchange rates (USD, EUR, GBP to AUD) via the Settings modal; rates persist in `localStorage`
+- **Project name override rules** -- define keyword-based derivation rules to normalise or remap project names from raw CSV data; rules persist in `localStorage`
+- **GitHub sync** -- optional: auto-load expenses from and write edits back to a GitHub repo using a classic or fine-grained PAT
+- **Inline editing** -- edit project, category, description, and comment directly from the drawer; changes auto-push to GitHub when sync is enabled
 - **Print to PDF** -- print-optimised layout with a branded cover page, date range, and applied filters
 - **CSV export** -- export the currently filtered dataset as a clean CSV file
 - **Project and status filters** -- filter the dashboard by project and/or transaction status
@@ -92,24 +94,45 @@ xdg-open index.html
 
 ## How to Change the PIN
 
-The PIN is defined as a single constant near the top of the `<script>` section in `index.html`:
+The PIN is stored as a hash, not a plaintext constant. In `index.html`, find:
 
 ```js
-const PIN = '4471';
+const PIN_HASH = 1600858;   // hash of '4471'
 ```
 
-Change the string value to any new PIN and save the file. No other changes are needed.
+To set a new PIN, run `hashString('your-new-pin')` in the browser console (the function is defined in the same script) and paste the resulting integer as the new `PIN_HASH` value.
+
+> The PIN gate is a **soft gate only** — a simple polynomial hash over a 4-digit space is trivially brute-forceable from the browser console. It protects against casual shoulder-surfing, nothing more. Do not rely on it as a security boundary.
+
+---
+
+## GitHub Sync
+
+The dashboard can read and write a normalised JSON dataset at `data/expenses.json` in a GitHub repo (default: `aalancorreya/INCYT-Expense`). When sync is enabled:
+
+- On unlock, the dashboard fetches `data/expenses.json` from the repo and restores the last saved state.
+- Inline edits (project, category, description, comment, project-derivation rules) are debounced and auto-pushed back to the repo.
+- Conflicts are currently resolved last-write-wins — avoid editing from two tabs at once.
+
+**To enable sync:** open **Settings** (gear icon), paste a GitHub Personal Access Token in the **GitHub Integration** field, and save.
+
+**PAT requirements:** classic PAT with `repo` scope, or a fine-grained PAT with Contents read/write on the target repo.
+
+**PAT storage:** the token is stored in `sessionStorage` and cleared when you close the tab. You will need to re-paste it for each new browser session.
+
+To point at a different repo, edit the `REPO` constant in `GitHubSync` (around `index.html:1813`).
 
 ---
 
 ## Privacy and Security Notes
 
-- **All processing is client-side.** CSV files are read using the browser's `FileReader` API. No data is transmitted to any server.
-- **No backend.** The tool is a single static HTML file with no server-side component.
-- **No network requests for data.** The only external requests are for CDN-hosted libraries (Chart.js, PapaParse, Google Fonts) on first load.
+- **CSV parsing is client-side.** CSVs are read in-browser with `FileReader`; the file itself is never uploaded to any server.
+- **Network calls.** External requests are: CDN libraries (Chart.js, PapaParse on jsDelivr — pinned with Subresource Integrity hashes), Google Fonts, and — only when GitHub Sync is enabled — `api.github.com`.
 - **Session-only unlock.** The PIN unlock state does not persist beyond the current browser session.
-- **The PIN is a soft gate only.** It is visible in the page source. Do not use this tool as a security boundary for sensitive data in hostile environments.
-- **FX rates and project rules** are stored in `sessionStorage` and cleared when the browser tab is closed.
+- **PAT handling.** The GitHub PAT lives in `sessionStorage` only and never touches the DOM as plaintext (password input + API Authorization header).
+- **FX rates and project rules** persist in `localStorage` so they survive tab close.
+- **Content Security Policy.** The page ships with a restrictive CSP meta tag that blocks network calls outside `api.github.com` and scripts outside `cdn.jsdelivr.net`.
+- **The PIN is a soft gate only.** It is a hash of a 4-digit numeric PIN; brute-forceable from the browser console. Use a private GitHub Pages deployment if you need real access control.
 
 ---
 
@@ -153,15 +176,15 @@ Additional columns (Description, Merchant, Expense category, Employee(s), etc.) 
 
 1. Click the **gear icon** in the top toolbar to open the Settings modal.
 2. Under **FX Rates**, adjust the conversion rates for USD, EUR, GBP (or other currencies) to AUD.
-3. Click **Apply**. All transaction amounts will be recalculated using the new rates.
-4. Rates are stored in `sessionStorage` for the current tab only.
+3. Click **Save & Reprocess**. All transaction amounts are recalculated using the new rates.
+4. Rates persist in `localStorage`.
 
 ### Project Derivation Rules
 
 1. In the same Settings modal, scroll to **Project Derivation Rules**.
-2. Add keyword-to-project mappings (e.g., if the CSV description contains "Winch", assign the transaction to project "Winch Control").
-3. Click **Apply**. Transactions will be re-categorised according to the new rules.
-4. Rules are stored in `sessionStorage` for the current tab only.
+2. Add regex-to-project mappings (e.g., pattern `winch` → project `Winch Control` — order matters, first match wins).
+3. Click **Save & Reprocess**. Transactions are re-categorised with the new rules.
+4. Rules persist in `localStorage`.
 
 ### Persistent Changes
 
